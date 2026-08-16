@@ -2,6 +2,7 @@ import os
 import cv2
 import json
 import random
+import argparse
 import numpy as np
 
 
@@ -11,8 +12,33 @@ NUM_SAMPLES = 50
 
 OUTPUT_DIR = "samples"
 
+# Supported synthetic architecture styles. These are simple,
+# distinguishable visual motifs for benchmarking purposes only - see
+# references.md and the limitation notice below. They are NOT physically
+# accurate models of any real DRAM or FinFET process.
+ARCHITECTURES = ("DRAM", "FINFET")
 
-def create_wafer_pattern(size=IMAGE_SIZE):
+
+def create_wafer_pattern(size=IMAGE_SIZE, architecture="DRAM"):
+    """
+    Synthetic benchmark pattern generator.
+
+    architecture="DRAM": the original repetitive cell-array style
+    pattern (regular rectangular cells + interconnect grid), unchanged
+    from the original generator.
+
+    architecture="FINFET": the same cell-array/interconnect pipeline,
+    with the per-cell motif swapped for a directional, fin-like
+    repeated structure (parallel vertical fins + a gate-like crossbar)
+    instead of the DRAM rectangle+circle motif. Everything else
+    (spacing, interconnect grid, noise, blur) is identical.
+
+    These are synthetic benchmark structures for navigation-error
+    recovery testing, NOT claims of physically accurate semiconductor
+    process simulation. See references.md.
+    """
+
+    architecture = architecture.upper()
 
     image = np.zeros((size, size), dtype=np.uint8)
 
@@ -25,43 +51,76 @@ def create_wafer_pattern(size=IMAGE_SIZE):
 
         for x in range(20, size - 40, spacing):
 
-            # Main cell
-            cv2.rectangle(
-                image,
-                (x, y),
-                (x + cell_w, y + cell_h),
-                150,
-                2
-            )
+            if architecture == "FINFET":
+                # Directional fin-like repeated structure: parallel
+                # vertical "fins" instead of a single rectangle outline.
+                for fin_x in range(x, x + cell_w, 8):
+                    cv2.line(
+                        image,
+                        (fin_x, y),
+                        (fin_x, y + cell_h),
+                        150,
+                        2
+                    )
 
-            # Vertical structure
-            cv2.line(
-                image,
-                (x + 10, y),
-                (x + 10, y + cell_h),
-                200,
-                1
-            )
-
-            # Horizontal structure
-            cv2.line(
-                image,
-                (x, y + 20),
-                (x + cell_w, y + 20),
-                200,
-                1
-            )
-
-            # Small variation
-            if random.random() > 0.5:
-
-                cv2.circle(
+                # Gate/interconnect-like crossbar over the fins
+                cv2.line(
                     image,
-                    (x + 30, y + 30),
-                    4,
-                    220,
-                    -1
+                    (x, y + 20),
+                    (x + cell_w, y + 20),
+                    200,
+                    2
                 )
+
+                # Small variation
+                if random.random() > 0.5:
+
+                    cv2.circle(
+                        image,
+                        (x + 30, y + 30),
+                        4,
+                        220,
+                        -1
+                    )
+
+            else:
+                # Main cell
+                cv2.rectangle(
+                    image,
+                    (x, y),
+                    (x + cell_w, y + cell_h),
+                    150,
+                    2
+                )
+
+                # Vertical structure
+                cv2.line(
+                    image,
+                    (x + 10, y),
+                    (x + 10, y + cell_h),
+                    200,
+                    1
+                )
+
+                # Horizontal structure
+                cv2.line(
+                    image,
+                    (x, y + 20),
+                    (x + cell_w, y + 20),
+                    200,
+                    1
+                )
+
+                # Small variation
+                if random.random() > 0.5:
+
+                    cv2.circle(
+                        image,
+                        (x + 30, y + 30),
+                        4,
+                        220,
+                        -1
+                    )
 
     # Long interconnect lines
 
@@ -112,9 +171,9 @@ def create_wafer_pattern(size=IMAGE_SIZE):
     return image
 
 
-def generate_sample(index):
+def generate_sample(index, output_dir=OUTPUT_DIR, architecture="DRAM"):
 
-    search = create_wafer_pattern()
+    search = create_wafer_pattern(architecture=architecture)
 
     half = TARGET_SIZE // 2
 
@@ -160,7 +219,7 @@ def generate_sample(index):
     # Save search
 
     search_path = os.path.join(
-        OUTPUT_DIR,
+        output_dir,
         f"search_{index:04d}.png"
     )
 
@@ -172,7 +231,7 @@ def generate_sample(index):
     # Save reference
 
     reference_path = os.path.join(
-        OUTPUT_DIR,
+        output_dir,
         f"reference_{index:04d}.png"
     )
 
@@ -197,11 +256,13 @@ def generate_sample(index):
             "y": drift_y
         },
 
-        "reference_scale": 10
+        "reference_scale": 10,
+
+        "architecture": architecture.upper()
     }
 
     metadata_path = os.path.join(
-        OUTPUT_DIR,
+        output_dir,
         f"metadata_{index:04d}.json"
     )
 
@@ -223,20 +284,70 @@ def generate_sample(index):
     )
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate a synthetic DRAM-style or FinFET-style benchmark "
+            "dataset (reference/search image pairs + ground-truth "
+            "metadata) for APEX Drift-Sense navigation-error recovery "
+            "benchmarking. This is NOT a physically accurate "
+            "semiconductor process simulator - see references.md."
+        )
+    )
+
+    parser.add_argument(
+        "--architecture",
+        type=str,
+        default="DRAM",
+        help="Synthetic architecture style: DRAM or FinFET (case-insensitive).",
+    )
+
+    parser.add_argument(
+        "--num-pairs",
+        type=int,
+        default=NUM_SAMPLES,
+        help="Number of reference/search pairs to generate (default: 50).",
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=OUTPUT_DIR,
+        help="Directory to write generated samples to (default: samples).",
+    )
+
+    args = parser.parse_args()
+
+    architecture = args.architecture.strip().upper()
+    if architecture not in ARCHITECTURES:
+        parser.error(
+            f"--architecture must be one of {ARCHITECTURES} "
+            f"(case-insensitive), got: {args.architecture!r}"
+        )
+    args.architecture = architecture
+
+    if args.num_pairs <= 0:
+        parser.error("--num-pairs must be a positive integer")
+
+    return args
+
+
 def main():
+    args = parse_args()
 
     os.makedirs(
-        OUTPUT_DIR,
+        args.output_dir,
         exist_ok=True
     )
 
     print(
-        "Generating improved Drift-Sense dataset..."
+        f"Generating {args.num_pairs} {args.architecture}-style "
+        f"Drift-Sense sample pair(s) into '{args.output_dir}'..."
     )
 
-    for i in range(NUM_SAMPLES):
+    for i in range(args.num_pairs):
 
-        generate_sample(i)
+        generate_sample(i, output_dir=args.output_dir, architecture=args.architecture)
 
     print(
         "\nDataset generation completed."

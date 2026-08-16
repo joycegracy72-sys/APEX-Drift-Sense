@@ -38,3 +38,72 @@ python evaluation.py
 
 Do not replace the original `evaluation.py` when submitting unless the
 hackathon specifically asks for a custom evaluator.
+
+## Judge / Reproduction Instructions
+
+### 1. Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Generate a test dataset
+
+The generator produces synthetic DRAM-style and FinFET-style
+reference/search image pairs for navigation-error recovery
+benchmarking. These are simplified, repetitive synthetic patterns
+designed to be distinguishable and useful for testing - they are
+**not** a physically accurate simulation of any real DRAM or FinFET
+process (see [references.md](references.md) for supporting
+background and limitations).
+
+```bash
+python data/generate_dataset.py \
+    --architecture DRAM \
+    --num-pairs 1 \
+    --output-dir test_samples
+```
+
+```bash
+python data/generate_dataset.py \
+    --architecture FinFET \
+    --num-pairs 1 \
+    --output-dir test_samples_finfet
+```
+
+`--architecture` accepts `DRAM` or `FinFET` (case-insensitive). This
+writes to a separate output directory and does **not** touch or
+regenerate the original benchmark dataset in `samples/`, which is
+required to reproduce the numbers reported above.
+
+### 3. Run inference
+
+```bash
+python inference.py test_samples/reference_0000.png test_samples/search_0000.png
+```
+
+`inference.py` expects exactly two arguments, in this order:
+
+1. **reference image** (first argument) - the small template image.
+2. **search image** (second argument) - the larger image to locate it in.
+
+It calls the existing, unmodified `src/matcher.py` internally and
+prints the predicted location as a single coordinate, e.g.:
+
+```
+(512, 438)
+```
+
+Exit code is non-zero (with an error message on stderr) if the
+arguments are missing/invalid or the input files can't be read.
+
+### Scope note
+
+To avoid any ambiguity: **synthetic dataset generation**
+(`data/generate_dataset.py`), **image matching**
+(`src/matcher.py`, unchanged), and **navigation-error recovery**
+(the overall benchmarking task this repo evaluates) are three distinct
+things. Generating a synthetic DRAM-style or FinFET-style image does
+not imply the matcher was trained or tuned on real wafer data, and the
+reported benchmark numbers above reflect performance on the original,
+unmodified `samples/` dataset only.
