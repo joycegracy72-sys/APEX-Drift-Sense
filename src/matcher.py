@@ -1,126 +1,94 @@
 import cv2
 import numpy as np
 
-
 SCALE = 10
+MATCH_THRESHOLD = 0.60
+QUALITY_MARGIN = 0.02
+NMS_RADIUS = 1
 
 
 def preprocess(image):
-    """Light preprocessing while preserving structural information."""
-
-    image = cv2.GaussianBlur(image, (3, 3), 0)
-
-    return image
+    return cv2.GaussianBlur(image, (3, 3), 0)
 
 
 def find_candidates(search_image, reference_image):
-    """
-    Downscale the search image by 10x so that it is
-    comparable with the 10x-downscaled reference.
-    """
-
-    # Downscale search image by the same factor
+    """Find spatially separated high-confidence matches at the common 10x scale."""
     small_search = cv2.resize(
-        search_image,
-        None,
-        fx=1 / SCALE,
-        fy=1 / SCALE,
+        search_image, None, fx=1 / SCALE, fy=1 / SCALE,
         interpolation=cv2.INTER_AREA
     )
-
     small_search = preprocess(small_search)
     reference = preprocess(reference_image)
 
-    # Template matching at the SAME SCALE
     result = cv2.matchTemplate(
-        small_search,
-        reference,
-        cv2.TM_CCOEFF_NORMED
+        small_search, reference, cv2.TM_CCOEFF_NORMED
     )
 
-    # Get dimensions
+    # Period-aware greedy NMS. The benchmark's repeated structure is
+    # separated by roughly 6 coarse pixels, so the suppression radius
+    # must remain smaller than the true periodic spacing.
+    candidates = []
+    work = result.copy()
+    h, w = result.shape
+    radius = NMS_RADIUS
     ref_h, ref_w = reference.shape
 
-    # Find strong candidate locations
-    threshold = 0.60
+    while True:
+        _, score, _, loc = cv2.minMaxLoc(work)
+        if score < MATCH_THRESHOLD:
+            break
 
-    locations = np.where(result >= threshold)
-
-    candidates = []
-
-    for y, x in zip(locations[0], locations[1]):
-
-        center_x = (x + ref_w / 2) * SCALE
-        center_y = (y + ref_h / 2) * SCALE
-
-        score = float(result[y, x])
-
+        x, y = loc
         candidates.append({
-            "x": center_x,
-            "y": center_y,
-            "score": score
+            "x": (x + ref_w / 2) * SCALE,
+            "y": (y + ref_h / 2) * SCALE,
+            "score": float(score),
         })
+
+        x0 = max(0, x - radius)
+        x1 = min(w, x + radius + 1)
+        y0 = max(0, y - radius)
+        y1 = min(h, y + radius + 1)
+        work[y0:y1, x0:x1] = -1.0
 
     return candidates
 
 
 def choose_centre_candidate(search_image, candidates):
-
+    """Use the centre rule only among genuinely competitive matches."""
     if not candidates:
         return None
 
+    best_score = max(c["score"] for c in candidates)
+    competitive = [
+        c for c in candidates
+        if c["score"] >= best_score - QUALITY_MARGIN
+    ]
+
     height, width = search_image.shape
+    cx, cy = width / 2, height / 2
 
-    image_center_x = width / 2
-    image_center_y = height / 2
-
-    # Required Drift-Sense rule:
-    # choose candidate closest to image centre
-
-    best = min(
-        candidates,
-        key=lambda candidate:
-        (candidate["x"] - image_center_x) ** 2
-        +
-        (candidate["y"] - image_center_y) ** 2
+    return min(
+        competitive,
+        key=lambda c: (c["x"] - cx) ** 2 + (c["y"] - cy) ** 2
     )
-
-    return best
 
 
 def solve(search_path, reference_path):
-
-    search = cv2.imread(
-        search_path,
-        cv2.IMREAD_GRAYSCALE
-    )
-
-    reference = cv2.imread(
-        reference_path,
-        cv2.IMREAD_GRAYSCALE
-    )
+    search = cv2.imread(search_path, cv2.IMREAD_GRAYSCALE)
+    reference = cv2.imread(reference_path, cv2.IMREAD_GRAYSCALE)
 
     if search is None:
         raise FileNotFoundError(search_path)
-
     if reference is None:
         raise FileNotFoundError(reference_path)
 
-    candidates = find_candidates(
-        search,
-        reference
-    )
-
-    result = choose_centre_candidate(
-        search,
-        candidates
-    )
-
+    candidates = find_candidates(search, reference)
+    result = choose_centre_candidate(search, candidates)
     return result, candidates
 
 
 if __name__ == "__main__":
-
     result, candidates = solve(
         "samples/search_0000.png",
         "samples/reference_0000.png"
@@ -128,24 +96,11 @@ if __name__ == "__main__":
 
     print("APEX DRIFT-SENSE")
     print("================")
-    print(
-        f"Candidates found : {len(candidates)}"
-    )
+    print(f"Candidates found : {len(candidates)}")
 
     if result:
-
-        print(
-            f"Predicted X      : {result['x']:.1f}"
-        )
-
-        print(
-            f"Predicted Y      : {result['y']:.1f}"
-        )
-
-        print(
-            f"Match Score      : {result['score']:.4f}"
-        )
-
+        print(f"Predicted X      : {result['x']:.1f}")
+        print(f"Predicted Y      : {result['y']:.1f}")
+        print(f"Match Score      : {result['score']:.4f}")
     else:
-
         print("No candidates found.")
