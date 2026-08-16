@@ -68,6 +68,8 @@ def evaluate(samples_dir, num_samples):
             "candidates": len(candidates),
             "ground_truth": ground_truth,
             "result": result,
+            "confidence": result.get("confidence") if isinstance(result, dict) else None,
+            "chosen_by": result.get("chosen_by") if isinstance(result, dict) else None,
         })
 
     def summarize(samples):
@@ -99,12 +101,17 @@ def evaluate(samples_dir, num_samples):
                 else:
                     buckets[">20"] += 1
 
+            ambiguous = sum(1 for s in returned if s.get("confidence") is not None and s.get("confidence") < 0.02)
+            avg_candidates = sum(s.get("candidates",0) for s in samples) / len(samples) if samples else 0
+
             summary.update({
                 "mean_error": mean_error,
                 "median_error": median_error,
                 "within_5": within_5,
                 "within_10": within_10,
                 "error_buckets": buckets,
+                "ambiguous": ambiguous,
+                "avg_candidates": avg_candidates,
             })
         else:
             summary.update({
