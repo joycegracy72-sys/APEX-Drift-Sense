@@ -74,6 +74,59 @@ def choose_centre_candidate(search_image, candidates):
     )
 
 
+def refine_single_candidate(search_image, reference_image, candidate, max_drift=20):
+    """
+    Refine the chosen candidate's position by doing a localized full-resolution
+    -> downsampled ROI matching to avoid upscaling the small reference. This
+    helps correct small integer-pixel offsets introduced by navigation drift.
+    Returns a new candidate dict or the original if refinement failed.
+    """
+    if candidate is None:
+        return None
+
+    height, width = search_image.shape
+    ref_h_small, ref_w_small = reference_image.shape
+    ref_w_full = int(ref_w_small * SCALE)
+    ref_h_full = int(ref_h_small * SCALE)
+
+    cx = int(round(candidate["x"]))
+    cy = int(round(candidate["y"]))
+
+    x0 = max(0, cx - ref_w_full // 2 - max_drift)
+    y0 = max(0, cy - ref_h_full // 2 - max_drift)
+    x1 = min(width, cx + ref_w_full // 2 + max_drift + 1)
+    y1 = min(height, cy + ref_h_full // 2 + max_drift + 1)
+
+    roi_full = search_image[y0:y1, x0:x1]
+    if roi_full.size == 0:
+        return candidate
+
+    # Downscale roi to coarse scale for comparison with small reference
+    small_w = max(1, roi_full.shape[1] // SCALE)
+    small_h = max(1, roi_full.shape[0] // SCALE)
+    roi_small = cv2.resize(roi_full, (small_w, small_h), interpolation=cv2.INTER_AREA)
+    roi_small = preprocess(roi_small)
+    ref_small = preprocess(reference_image)
+
+    if roi_small.shape[0] < ref_small.shape[0] or roi_small.shape[1] < ref_small.shape[1]:
+        return candidate
+
+    res = cv2.matchTemplate(roi_small, ref_small, cv2.TM_CCOEFF_NORMED)
+    _, best_score, _, best_loc = cv2.minMaxLoc(res)
+    bx, by = best_loc
+
+    # Map back to full-resolution centre coordinate
+    refined_x = x0 + bx * SCALE + ref_w_full / 2
+    refined_y = y0 + by * SCALE + ref_h_full / 2
+
+    return {
+        "x": float(refined_x),
+        "y": float(refined_y),
+        "score": float(best_score),
+        "refined": True,
+    }
+
+
 def solve(search_path, reference_path):
     search = cv2.imread(search_path, cv2.IMREAD_GRAYSCALE)
     reference = cv2.imread(reference_path, cv2.IMREAD_GRAYSCALE)
@@ -85,6 +138,16 @@ def solve(search_path, reference_path):
 
     candidates = find_candidates(search, reference)
     result = choose_centre_candidate(search, candidates)
+
+    # Localized refinement of the final chosen candidate only (minimal change):
+    refined = refine_single_candidate(search, reference, result, max_drift=20)
+    if refined is not None:
+        # Keep coarse score in case refined score is not reliable; but overwrite
+        # location with refined position if refinement succeeded.
+        if result is not None:
+            refined["coarse_score"] = result.get("score")
+        result = refined
+
     return result, candidates
 
 
