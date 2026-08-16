@@ -206,82 +206,94 @@ def generate_sample(index, output_dir=OUTPUT_DIR, architecture="DRAM"):
 
     # Simulated navigation drift
 
-    drift_x = random.randint(
-        -20,
-        20
+    # Sample drift first, then choose a target location that remains fully
+    # inside the final (drifted) search image. This guarantees the saved
+    # search image contains the target region and that the ground-truth
+    # coordinates are correct after applying the drift transform.
+    attempt = 0
+    while True:
+        attempt += 1
+        drift_x = random.randint(-20, 20)
+        drift_y = random.randint(-20, 20)
+
+        # After applying drift, the true target location will be (x + drift_x, y + drift_y)
+        # Choose x,y so that the final location stays within the image bounds.
+        min_x = half + 10 - drift_x
+        max_x = IMAGE_SIZE - half - 10 - drift_x
+        min_y = half + 10 - drift_y
+        max_y = IMAGE_SIZE - half - 10 - drift_y
+
+        if min_x <= max_x and min_y <= max_y:
+            x = random.randint(int(min_x), int(max_x))
+            y = random.randint(int(min_y), int(max_y))
+            break
+
+        # Extremely unlikely; retry a few times before falling back to conservative bounds
+        if attempt > 10:
+            # conservative selection using worst-case drift margin
+            max_d = 20
+            x = random.randint(half + 10 + max_d, IMAGE_SIZE - half - 10 - max_d)
+            y = random.randint(half + 10 + max_d, IMAGE_SIZE - half - 10 - max_d)
+            drift_x = random.randint(-max_d, max_d)
+            drift_y = random.randint(-max_d, max_d)
+            break
+
+    # Extract the target from the original (pre-drift) pattern to create the reference
+    target = search[
+        y - half:y + half,
+        x - half:x + half
+    ]
+
+    reference = cv2.resize(
+        target,
+        (TARGET_SIZE // 10, TARGET_SIZE // 10),
+        interpolation=cv2.INTER_AREA
     )
 
-    drift_y = random.randint(
-        -20,
-        20
+    # Apply the drift as a translation to the search image so the saved search
+    # image actually contains the navigation error.
+    M = np.float32([[1, 0, drift_x], [0, 1, drift_y]])
+    drifted_search = cv2.warpAffine(
+        search,
+        M,
+        (IMAGE_SIZE, IMAGE_SIZE),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0
     )
 
-    # Save search
+    # Save search (drifted) and reference
+    search_path = os.path.join(output_dir, f"search_{index:04d}.png")
+    cv2.imwrite(search_path, drifted_search)
 
-    search_path = os.path.join(
-        output_dir,
-        f"search_{index:04d}.png"
-    )
+    reference_path = os.path.join(output_dir, f"reference_{index:04d}.png")
+    cv2.imwrite(reference_path, reference)
 
-    cv2.imwrite(
-        search_path,
-        search
-    )
-
-    # Save reference
-
-    reference_path = os.path.join(
-        output_dir,
-        f"reference_{index:04d}.png"
-    )
-
-    cv2.imwrite(
-        reference_path,
-        reference
-    )
-
-    # Save metadata
-
+    # Save metadata. ground_truth is the coordinate of the target in the
+    # saved (drifted) search image. Also record the pre-drift target for clarity.
     metadata = {
-
         "sample": index,
-
         "ground_truth": {
+            "x": x + drift_x,
+            "y": y + drift_y
+        },
+        "pre_drift_target": {
             "x": x,
             "y": y
         },
-
         "drift": {
             "x": drift_x,
             "y": drift_y
         },
-
         "reference_scale": 10,
-
         "architecture": architecture.upper()
     }
 
-    metadata_path = os.path.join(
-        output_dir,
-        f"metadata_{index:04d}.json"
-    )
+    metadata_path = os.path.join(output_dir, f"metadata_{index:04d}.json")
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=4)
 
-    with open(
-        metadata_path,
-        "w"
-    ) as f:
-
-        json.dump(
-            metadata,
-            f,
-            indent=4
-        )
-
-    print(
-        f"[{index:03d}] "
-        f"Target=({x},{y}) "
-        f"Drift=({drift_x},{drift_y})"
-    )
+    print(f"[{index:03d}] Target=({x},{y}) Drift=({drift_x},{drift_y}) GT=({x + drift_x},{y + drift_y})")
 
 
 def parse_args():

@@ -13,21 +13,17 @@ larger search image when the reference is 10× downsampled.
 
 ## Verified benchmark on the supplied 50-sample dataset
 
-The original matcher was reproduced at:
+Measured results (using the repository matcher as provided):
 
-- Mean error: **344.47 px**
-- Median error: **355.53 px**
-- Within 5 px: **0%**
-- Within 10 px: **2%**
+- Original `samples/` dataset (reported by the improved evaluator):
+  - Mean error: 305.41 px
+  - Median error: 309.67 px
+  - Within 5 px: 24% (of returned results)
+  - Within 10 px: 26% (of returned results)
 
-The replacement matcher gives:
-
-- Mean error: **305.41 px**
-- Median error: **309.67 px**
-- Within 5 px: **24%**
-- Within 10 px: **26%**
-
-The benchmark uses the repository's existing, unmodified `evaluation.py`.
+Notes:
+- These numbers are measured with the matcher implementation in `src/matcher.py` and the improved evaluation script `data/evaluate_improved.py` included in this change set.
+- The matcher is NOT architecture-aware; it does not consume or use the `architecture` field in the dataset metadata. Reported DRAM vs FinFET comparisons are empirical measurements of the matcher running on datasets generated with different synthetic styles, not evidence of any architecture-specific matching logic.
 
 ## Run
 
