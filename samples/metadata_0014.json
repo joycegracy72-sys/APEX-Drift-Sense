@@ -1,0 +1,12 @@
+{
+    "sample": 14,
+    "ground_truth": {
+        "x": 853,
+        "y": 466
+    },
+    "drift": {
+        "x": 0,
+        "y": -10
+    },
+    "reference_scale": 10
+}
