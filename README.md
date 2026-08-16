@@ -16,10 +16,22 @@ larger search image when the reference is 10× downsampled.
 Measured results (using the repository matcher as provided):
 
 - Original `samples/` dataset (reported by the improved evaluator):
-  - Mean error: 305.41 px
+  - Mean error: 305.33 px
   - Median error: 309.67 px
-  - Within 5 px: 24% (of returned results)
-  - Within 10 px: 26% (of returned results)
+  - Within 5 px: 11/50 (22.00%) of samples
+  - Within 10 px: 13/50 (26.00%) of samples
+
+- Corrected DRAM dataset (samples_corrected_DRAM):
+  - Mean error: 335.05 px
+  - Median error: 347.11 px
+  - Within 5 px: 6/50 (12.00%) of samples
+  - Within 10 px: 10/50 (20.00%) of samples
+
+- Corrected FinFET dataset (samples_corrected_FINFET):
+  - Mean error: 336.87 px
+  - Median error: 342.24 px
+  - Within 5 px: 0/50 (0.00%) of samples
+  - Within 10 px: 0/50 (0.00%) of samples
 
 Notes:
 - These numbers are measured with the matcher implementation in `src/matcher.py` and the improved evaluation script `data/evaluate_improved.py` included in this change set.
